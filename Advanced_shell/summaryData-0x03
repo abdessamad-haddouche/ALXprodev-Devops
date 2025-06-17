@@ -1,0 +1,154 @@
+#!/bin/bash
+
+# Pokémon Data Summary Report Script
+# Reads JSON files from Task 2 and generates a CSV report
+# Calculates average height and weight using awk
+
+# Configuration
+INPUT_DIR="pokemon_data"
+OUTPUT_CSV="pokemon_report.csv"
+TEMP_DATA="temp_pokemon_data.txt"
+
+# Check if input directory exists
+check_input_dir() {
+    if [ ! -d "$INPUT_DIR" ]; then
+        echo "Error: Directory $INPUT_DIR not found. Please run the batch processing script first."
+        exit 1
+    fi
+    
+    # Check if there are any JSON files
+    json_count=$(ls -1 "$INPUT_DIR"/*.json 2>/dev/null | wc -l)
+    if [ "$json_count" -eq 0 ]; then
+        echo "Error: No JSON files found in $INPUT_DIR directory."
+        exit 1
+    fi
+}
+
+# Check required tools
+check_dependencies() {
+    if ! command -v jq >/dev/null 2>&1; then
+        echo "Error: jq is required but not found. Please install jq."
+        exit 1
+    fi
+    
+    if ! command -v awk >/dev/null 2>&1; then
+        echo "Error: awk is required but not found."
+        exit 1
+    fi
+}
+
+# Extract data from all JSON files
+extract_pokemon_data() {
+    # Clear temp file if it exists
+    > "$TEMP_DATA"
+    
+    echo "Processing Pokémon data files..."
+    
+    # Process each JSON file in the directory
+    for json_file in "$INPUT_DIR"/*.json; do
+        if [ -f "$json_file" ]; then
+            # Extract name, height, and weight using jq and clean with sed
+            jq -r '(.name + "," + (.height|tostring) + "," + (.weight|tostring))' "$json_file" 2>/dev/null | sed 's/null//g' >> "$TEMP_DATA"
+            
+            # Check if jq extraction was successful
+            if [ $? -ne 0 ]; then
+                echo "Warning: Failed to process $json_file"
+            fi
+        fi
+    done
+    
+    # Check if we have any data
+    if [ ! -s "$TEMP_DATA" ]; then
+        echo "Error: No valid data extracted from JSON files."
+        exit 1
+    fi
+}
+
+# Generate CSV report
+generate_csv_report() {
+    echo "Generating CSV report..."
+    
+    # Create CSV header
+    echo "Name,Height (m),Weight (kg)" > "$OUTPUT_CSV"
+    
+    # Process the temp data and convert units using awk and sed
+    awk -F',' '{
+        # Capitalize first letter of name
+        name = toupper(substr($1,1,1)) tolower(substr($1,2))
+        
+        # Convert height from decimeters to meters
+        height_m = $2 / 10
+        
+        # Convert weight from hectograms to kilograms
+        weight_kg = $3 / 10
+        
+        # Format and print
+        printf "%s,%.1f,%.1f\n", name, height_m, weight_kg
+    }' "$TEMP_DATA" | sed 's/,/, /g; s/,/, /g' | sed 's/, /, /g; s/, /,/g' >> "$OUTPUT_CSV"
+    
+    echo "CSV Report generated at: $OUTPUT_CSV"
+    echo ""
+}
+
+# Display CSV content and calculate averages
+display_report_and_calculate_averages() {
+    # Display the CSV content (excluding header for cleaner output)
+    echo "Name,Height (m),Weight (kg)"
+    tail -n +2 "$OUTPUT_CSV"
+    echo ""
+    
+    # Calculate averages using awk
+    tail -n +2 "$OUTPUT_CSV" | awk -F',' '
+    BEGIN {
+        sum_height = 0
+        sum_weight = 0
+        count = 0
+    }
+    {
+        sum_height += $2
+        sum_weight += $3
+        count++
+    }
+    END {
+        if (count > 0) {
+            avg_height = sum_height / count
+            avg_weight = sum_weight / count
+            printf "Average Height: %.2f m\n", avg_height
+            printf "Average Weight: %.2f kg\n", avg_weight
+        } else {
+            print "No data to calculate averages"
+        }
+    }'
+}
+
+# Clean up temporary files
+cleanup() {
+    if [ -f "$TEMP_DATA" ]; then
+        rm -f "$TEMP_DATA"
+    fi
+}
+
+# Main execution function
+main() {
+    # Check prerequisites
+    check_dependencies
+    check_input_dir
+    
+    # Extract data from JSON files
+    extract_pokemon_data
+    
+    # Generate CSV report
+    generate_csv_report
+    
+    # Display report and calculate averages
+    display_report_and_calculate_averages
+    
+    # Clean up
+    cleanup
+}
+
+# Set up trap for cleanup on exit
+trap cleanup EXIT
+
+# Run the main function
+main "$@"
