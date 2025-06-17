@@ -1,0 +1,107 @@
+#!/bin/bash
+
+# Pokémon API Request Automation Script
+# Fetches Pikachu data from the Pokémon API and saves to data.json
+# Logs errors to errors.txt if the request fails
+
+# API endpoint for Pikachu
+API_URL="https://pokeapi.co/api/v2/pokemon/pikachu"
+
+# Output files
+DATA_FILE="data.json"
+ERROR_FILE="errors.txt"
+
+# Function to log errors with timestamp
+log_error() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $1" >> "$ERROR_FILE"
+}
+
+# Function to make API request
+make_api_request() {
+    echo "Making API request to fetch Pikachu data..."
+    
+    # Use curl to make the API request
+    # -s: silent mode (no progress bar)
+    # -S: show errors
+    # -f: fail silently on HTTP errors
+    # -w: write HTTP status code to stderr
+    local response
+    local http_code
+    
+    # Capture both response and HTTP status code
+    response=$(curl -s -S -f -w "%{http_code}" "$API_URL" 2>/dev/null)
+    local curl_exit_code=$?
+    
+    # Extract HTTP code (last 3 characters)
+    http_code="${response: -3}"
+    # Extract JSON response (everything except last 3 characters)
+    local json_response="${response%???}"
+    
+    # Check if curl command succeeded
+    if [ $curl_exit_code -ne 0 ]; then
+        log_error "curl command failed with exit code $curl_exit_code"
+        return 1
+    fi
+    
+    # Check HTTP status code
+    if [ "$http_code" -ne 200 ]; then
+        log_error "HTTP request failed with status code: $http_code"
+        return 1
+    fi
+    
+    # Validate JSON response
+    if ! echo "$json_response" | jq . >/dev/null 2>&1; then
+        log_error "Invalid JSON response received"
+        return 1
+    fi
+    
+    # Save the JSON response to file
+    echo "$json_response" > "$DATA_FILE"
+    
+    if [ $? -eq 0 ]; then
+        echo "✓ Successfully saved Pikachu data to $DATA_FILE"
+        return 0
+    else
+        log_error "Failed to write data to $DATA_FILE"
+        return 1
+    fi
+}
+
+# Main execution
+main() {
+    echo "Pokémon API Automation Script"
+    echo "=============================="
+    
+    # Check if curl is available
+    if ! command -v curl >/dev/null 2>&1; then
+        log_error "curl is not installed or not in PATH"
+        echo "ERROR: curl is required but not found. Please install curl."
+        exit 1
+    fi
+    
+    # Check if jq is available (for JSON validation)
+    if ! command -v jq >/dev/null 2>&1; then
+        log_error "jq is not installed or not in PATH"
+        echo "WARNING: jq is not found. JSON validation will be skipped."
+    fi
+    
+    # Make the API request
+    if make_api_request; then
+        echo "✓ Operation completed successfully!"
+        echo "✓ Data saved to: $DATA_FILE"
+        
+        # Display basic info about the saved file
+        if [ -f "$DATA_FILE" ]; then
+            file_size=$(wc -c < "$DATA_FILE")
+            echo "✓ File size: $file_size bytes"
+        fi
+        
+        exit 0
+    else
+        echo "✗ Operation failed! Check $ERROR_FILE for details."
+        exit 1
+    fi
+}
+
+# Run the main function
+main "$@"
